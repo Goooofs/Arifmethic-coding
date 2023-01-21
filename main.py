@@ -1,171 +1,235 @@
-import os
-global write_bit
-global bit_len
-
-write_bit = 0
-bit_len = 8
-
-def file_presence(file):	#проверяем файл на наличие
-	filepath = os.path.join(file)
-	return os.path.isfile(filepath)
-
-def input_file(file_in):
-	f = open(f"{file_in}", 'r')
+def input_text(filename):
+	f = open(filename, "rb")
 	input = f.read()
 	f.close()
 	return input
 
-def symbols_counter(file_in):
-	dictonary_price = 0
-	with open(f"{file_in}", 'r') as file:
-		piece = file.read(1)
-		dictonary = {}
-		while piece:
-			if dictonary.get(piece) == None:
-				dictonary.update({piece: 1})
-			else:
-				dictonary[piece] = dictonary[piece] + 1
-			piece = file.read(1)
-		for _, val in dictonary.items():
-			dictonary_price += val
-	sorted_dictonary = dict(sorted(dictonary.items(), key=lambda item: item[1], reverse=True))
-	return sorted_dictonary
-
-def symbol_index(dict_symb, argument):
+def indexForSymbol(dict, symb):
 	j = 0
-	for i in dict_symb:
-		if argument != i:
+	for i in dict:
+		if symb != i:
 			j += 1
-		else:
-			j += 2
-			return j
+		else: return j + 2
 
-def bit_out(bit, file_out):		#подсмотрел в интернете
-    global write_bit
-    global bit_len
-    write_bit >>= 1
-    if bit & 1:
-        write_bit |= 0x80
-    bit_len -= 1
-    if bit_len == 0:
-        bit_len = 8
-        file_out.write(write_bit.to_bytes(1, "little"))
-
-def bit_add_follow(bit, next_bit, file_out):	#подсмотрел в интернете
-    bit_out(bit, file_out)
-    for _ in range(next_bit):
-        bit_out(~bit, file_out)
-
-def add_bit(low_value, high_value, next_bit, first_quality, half_quality, third_quality):
-	out_file = open("out_text.txt", "wb+")
-	if low_value >= half_quality:
-		bit_add_follow(1, next_bit, out_file)
-		next_bit=0
-		low_value -= half_quality
-		high_value -= half_quality
-	elif high_value < half_quality:
-		bit_add_follow(0, next_bit, out_file)
-		next_bit=0
-	elif low_value >= first_quality and high_value < third_quality:
-		next_bit += 1
-		low_value -= first_quality
-		high_value -= first_quality
-	else:
-		return False
-		
-	low_value += low_value
-	high_value += high_value + 1
-
-def symbol_value(file_in, dict_symb):	#некоторые моменты были подсмотрены из псевдокода в итернете
+def outPutBit(bit, out_file):	
 	global write_bit
 	global bit_len
-	out_file = open("out_text.txt", "wb+")
+	write_bit >>= 1
+	if (bit & 1):
+		write_bit |= 0x80
+	bit_len -= 1
+	if bit_len == 0:
+		bit_len = 8
+		out_file.write(write_bit.to_bytes(1, "little"))
 
-	symb_mas = [0, 1]
-	for i in dict_symb:
-		symb_mas.append(dict_symb[i] + symb_mas[-1])
-	
-	with open(f"{file_in}", 'r') as file:
-		low_value = 0
-		high_value = (1<<16)-1  
-		remover = symb_mas[-1]
-		difference = high_value - low_value + 1
-		first_quality = int(int(high_value + 1) / 4)
-		half_quality = first_quality * 2
-		third_quality = first_quality * 3
-		next_bit = 0
+def inPutBit(in_file):  
+	global read_bit
+	global bit_len
+	global useless_bit
+	if bit_len == 0:
+		sid_bit = in_file.read(1)
+		read_bit = int.from_bytes(sid_bit, "little")
+		if sid_bit == b"":
+			useless_bit += 1
+			read_bit = 255
+			if useless_bit > 14:
+				exit(1)
+		bit_len = 8
 
-		peace = file.read(1)
-		while peace:
-			j = symbol_index(dict_symb, peace)
-			high_value = int(low_value + symb_mas[j] * difference / remover - 1)
-			low_value = int(low_value + symb_mas[j - 1] * difference / remover)
+	t = read_bit & 1
+	read_bit >>= 1
+	bit_len -= 1
+	return t
+
+def bitPlusFollow(bit, bit_to_follow, out_file):	
+	outPutBit(bit, out_file)
+	for _ in range(bit_to_follow):
+		outPutBit(~bit, out_file)
+
+def coding(filename):
+
+	global write_bit
+	global bit_len
+	bit_len = 8
+	write_bit = 0
+
+	txt = input_text(filename)	#считываем текст
+	dictonary = {}
+	for x in txt:
+		dictonary[x] = dictonary.setdefault(x, 0) + 1
+
+	sorted_dict = dict(sorted(dictonary.items(), key=lambda item: item[1], reverse=True))	#создаем словарь по тексту
+	amount = len(sorted_dict)
+	symb = list(sorted_dict.keys())
+	val = list(sorted_dict.values())
+
+	dict_mas = [0, 1]
+	for i in sorted_dict:
+		dict_mas.append(sorted_dict[i] + dict_mas[-1])
+
+	with open(f"{filename}.arf", "wb+") as f:
+		f.write(amount.to_bytes(1, "little"))	#записываем словарь
+		for i in range(amount):
+			f.write(symb[i].to_bytes(3, "little"))
+			f.write(val[i].to_bytes(3, "little"))
+		
+		with open(filename, 'r') as fp:	#сжатие на целочисленных операциях
+			l0 = 0
+			h0 = (1<<16)-1  # 2^16 - 1 (65535)
+			difference = h0 - l0 + 1
+		
+			delitel = dict_mas[-1]
+
+			First_qtr = int(int(h0 + 1) / 4)	#16384
+			Half = First_qtr * 2				#32768
+			Third_qtr= First_qtr * 3			#49152
+		
+			bits_to_follow = 0		#сколько битов сбрасывать
+		
+			symbol = fp.read(1)		#читаем символ
+			while symbol:
+				j = indexForSymbol(sorted_dict, ord(symbol))	#находим индекс
+				h0 = int(l0 + dict_mas[j] * difference / delitel - 1)
+				l0 = int(l0 + dict_mas[j - 1] * difference / delitel)
+
+				while True:	#обрабатываем варианты переполнения
+					if h0 < Half:
+						bitPlusFollow(0, bits_to_follow, f)
+						bits_to_follow=0
+					elif l0 >= Half:
+						bitPlusFollow(1, bits_to_follow, f)
+						bits_to_follow=0
+						l0 -= Half
+						h0 -= Half
+					elif l0 >= First_qtr and h0 < Third_qtr:
+						bits_to_follow += 1
+						l0 -= First_qtr
+						h0 -= First_qtr
+					else:
+						break
+					l0 += l0
+					h0 += h0 + 1
+
+				difference = h0 - l0 + 1
+				symbol = fp.read(1)
+
+			h0 = int(l0 + dict_mas[1] * difference / delitel - 1)
+			l0 = int(l0 + dict_mas[0] * difference / delitel)
 
 			while True:
-				add_bit(low_value, high_value, next_bit, first_quality, half_quality, third_quality)
+				if h0 < Half:
+					bitPlusFollow(0, bits_to_follow, f)
+					bits_to_follow=0
+				elif l0 >= Half:
+					bitPlusFollow(1, bits_to_follow, f)
+					bits_to_follow=0
+					l0 -= Half
+					h0 -= Half
+				elif l0 >= First_qtr and h0 < Third_qtr:
+					bits_to_follow += 1
+					l0 -= First_qtr
+					h0 -= First_qtr
+				else:
+					break
+				l0 += l0
+				h0 += h0 + 1
+			bits_to_follow += 1
+			if l0 < First_qtr:
+				bitPlusFollow(0, bits_to_follow, f)
+				bits_to_follow=0
+			else:
+				bitPlusFollow(1, bits_to_follow, f)
+				bits_to_follow=0
 
-			difference = high_value + 1 - low_value
-			peace = file.read(1)
+			write_bit >>= bit_len
+			f.write(write_bit.to_bytes(1, "little"))
 
-		high_value = int(low_value + symb_mas[1] * difference / remover - 1)
-		low_value = int(low_value + symb_mas[0] * difference / remover)
+def decoding(filename):
 
-		while True:
-				add_bit(low_value, high_value, next_bit, first_quality, half_quality, third_quality)
+	global read_bit
+	global bit_len
+	global useless_bit
+	read_bit = 0
+	bit_len = 0
+	useless_bit = 0
 
-		next_bit += 1
-		if low_value < first_quality:
-			bit_add_follow(0, next_bit, out_file)
-			next_bit = 0
-		else:
-			bit_add_follow(1, next_bit, out_file)
-			next_bit = 0
+	with open(filename, "rb") as f_in:
 
-		write_bit >>= bit_len
-		out_file.write(write_bit.to_bytes(1, "little"))
-		
-	out_file.close()	
+		b = f_in.read(1)
+		amount_symb = int.from_bytes(b, 'little')
+		dictonary = {}
+		for x in range(amount_symb): #чтение словаря
+			c = f_in.read(6)
+			key = int.from_bytes(c[:len(c)//2], 'little')
+			val = int.from_bytes(c[len(c)//2:], 'little')
+			dictonary[key] = dictonary.setdefault(key, val)
 
-def write_header(file_out, dict_symb):
-	file = open(f"{file_out}", "wb+")
-	file.write(len(dict_symb).to_bytes(1, "little"))
-	for i in dict_symb:
-		file.write(i.encode("ascii"))
-		file.write(dict_symb[i].to_bytes(4, "little"))
-	
-def coding(file_in, file_out):
-	dict_symb = symbols_counter(file_in)
-	write_header(file_out, dict_symb)
-	symbol_value(file_in, dict_symb)
+		dict_mas = [0, 1]
+		for i in dictonary:
+			dict_mas.append(dictonary[i] + dict_mas[-1])
 
-def decoding():
-	print("Hello")
-	
+		with open(f"dec.{filename}", "wb+") as out:
+			l0 = 0
+			h0 = (1 << 16) - 1  # 2^16 - 1 (65535)
+			difference = h0 - l0 + 1
+			
+			delitel = dict_mas[-1]
+			
+			First_qtr = int(int(h0 + 1) / 4)	#16384
+			Half = First_qtr * 2				#32768
+			Third_qtr = First_qtr * 3			#49152
+			value = 0
+
+			lst = list(dictonary.keys())
+
+			for i in range(16):
+				k = inPutBit(f_in)
+				value += value + k
+				
+			while True:
+				freq = int(((value - l0 + 1) * delitel - 1) / difference)
+				j = 1
+				while dict_mas[j] <= freq:	#поиск символа
+					j += 1
+				h0 = int(l0 + dict_mas[j] * difference / delitel - 1)
+				l0 = int(l0 + dict_mas[j - 1] * difference / delitel)
+
+				while True:	#обрабатываем варианты переполнения
+					if h0 < Half:
+						pass
+					elif l0 >= Half:
+						l0 -= Half
+						h0 -= Half
+						value -= Half
+					elif l0 >= First_qtr and h0 < Third_qtr:
+						l0 -= First_qtr
+						h0 -= First_qtr
+						value -= First_qtr
+					else:
+						break
+					l0 += l0
+					h0 += h0 + 1
+					k = inPutBit(f_in)
+					value += value + k
+				if j == 1:
+					break
+				out.write(lst[j - 2].to_bytes(1, "little"))
+				difference = h0 - l0 + 1
+
 if __name__ == '__main__':
 
-	print("[c]oding or [d]ecoding file? ◕‿◕")
-	arg1 = input()
+	print("[c]oding or [d]ecoding file?")
+	type = input()
 
-	if not(arg1 == "c" or arg1 == "d"):	
-		print("The parameter is set incorrectly! ¯\_(ツ)_/¯")
+	print("Enter filename: ")
+	file = input()
+
+	if (type == "c"):
+		coding(file)
+		print("successfully!")
+	elif (type == "d"):
+		decoding(file)
+		print("successfully!")
+	else:
+		print("Wrong action, pls, try again")
 		exit(1)
-		
-	print("Enter file for coding.")
-	print("For example: text.txt")
-	arg2 = input()
-
-	print("Enter file for decoding.")
-	print("For example: out_text.txt")
-	arg3 = input()
-	
-	if not(file_presence(arg2) or file_presence(arg3)): 
-		print("Input or Out file was not found! ¯\_(ツ)_/¯")
-		exit(1)
-
-	if (arg1 == "c"):
-		coding(arg2, arg3)
-		print("File was successfully compressed!  \ (•◡•) /")
-	elif (arg1 == "d"):
-		decoding()
-		print("File was successfully decompressed!  \ (•◡•) /")
-		
